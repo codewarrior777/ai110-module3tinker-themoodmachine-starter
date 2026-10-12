@@ -7,6 +7,7 @@ This class implements a lexicon-based classifier with:
   - Intensity amplification ("so excited" doubles weight)
   - Slang support (from dataset.py SLANG_POSITIVE / SLANG_NEGATIVE)
   - Emoji polarity signals (🙃, 😊, 🔥, 🙄, etc.)
+  - Sarcasm detection ("love getting stuck in traffic" -> negative)
   - A "mixed" label when both polarities are present
 """
 
@@ -55,6 +56,17 @@ INTENSITY_WORDS = {
 # Emojis as strong polarity signals
 EMOJI_POSITIVE = {"🔥", "😊", "😂", "❤️", "💖", "👍", "🎉", "😍", "✨"}
 EMOJI_NEGATIVE = {"🙃", "🙄", "💀", "😭", "😢", "😡", "👎", "😞", "🥲"}
+
+# Sarcasm triggers: words that flip the meaning of nearby positive signals
+SARCASM_TRIGGERS = {
+    "stuck",
+    "traffic",
+    "monday",
+    "another",
+    "again",
+    "sure",
+    "obviously",
+}
 
 
 class MoodAnalyzer:
@@ -114,10 +126,14 @@ class MoodAnalyzer:
           - Intensity amplification ("so excited" -> weight 2)
           - Slang detection (via self.positive_words / self.negative_words)
           - Emoji polarity (EMOJI_POSITIVE / EMOJI_NEGATIVE)
+          - Sarcasm detection (positive word + sarcasm trigger -> negative)
         """
         tokens = self.preprocess(text)
         pos = 0
         neg = 0
+
+        # Pre-scan for sarcasm triggers anywhere in the sentence
+        has_sarcasm_trigger = any(t in SARCASM_TRIGGERS for t in tokens)
 
         for i, token in enumerate(tokens):
             prev = tokens[i - 1] if i > 0 else ""
@@ -125,8 +141,12 @@ class MoodAnalyzer:
             is_intensified = prev in INTENSITY_WORDS
             weight = 2 if is_intensified else 1
 
+            # Sarcasm override: a positive word alongside a sarcasm trigger
+            # is treated as a NEGATIVE signal
+            is_sarcastic = has_sarcasm_trigger and token in self.positive_words
+
             if token in self.positive_words:
-                if is_negated:
+                if is_negated or is_sarcastic:
                     neg += weight
                 else:
                     pos += weight
@@ -148,7 +168,7 @@ class MoodAnalyzer:
 
         Positive signals increase the score, negative signals decrease it.
         The score is the net difference after accounting for negation,
-        intensity, slang, and emojis.
+        intensity, slang, emojis, and sarcasm.
         """
         pos, neg = self._count_polarity(text)
         return pos - neg
